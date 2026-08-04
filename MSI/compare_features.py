@@ -38,7 +38,9 @@ from MSI import (
     BioPriorAggregation, PercentileAggregation, CountAggregation,
     ShiftRichAggregation, NoiseFilteredAggregation, MonoFocusAggregation,
     AllAggregation, InteractionAggregation, DistributionAggregation,
-    MultiThresholdAggregation, WeightedAggregation, OptimizedAggregation,
+    MultiThresholdAggregation, WeightedAggregation, EnhancedWeightedAggregation,
+    RobustAggregation, InteractionRobustAggregation, MinimalRobustAggregation,
+    MinimalRobustV2Aggregation, InstabilityFocusedAggregation, OptimizedAggregation,
     LocusLevelAggregation, AdvancedAggregation, UnstableLocusAggregation,
     SensitiveAggregation, LocusScoreAggregation,
     FeatureExtractor, AUCBasedLocusSelector,
@@ -50,7 +52,19 @@ from MSI import (
     UnstableProportionDetector,
     CosineDetector,
     MSIDetectionPipeline, compute_roc, evaluate,
-    Detector, NullLocusSelector,
+    Detector, 
+    NullLocusSelector,StabilitySelectionLocusSelector,PermutationTestLocusSelector,
+    EffectSizeLocusSelector,
+    XgbImportanceSelector, TwoStageXgbSelector,
+    RelaxedAUCSelector, MultiMetricLocusSelector,
+    LassoSelector, VarianceSelector, TwoStageVarianceSelector,
+    AnomalyFilter, MultivariateOutlierFilter, NaNFilter
+
+)
+from rule_engine import (
+    RuleEngine, MaxAltRatioRule, ExtremeInstabilityRule,
+    CancerSpecificRule, ConfidenceRule,
+    create_conservative_engine, create_balanced_engine, create_sensitive_engine
 )
 
 _LOG_FMT = "%(asctime)s %(levelname)-7s %(message)s"
@@ -93,6 +107,12 @@ STRATEGY_REGISTRY: Dict[str, Callable[..., AggregationStrategy]] = {
     'distribution':    lambda **p: DistributionAggregation(**p),
     'multi_threshold': lambda **p: MultiThresholdAggregation(**p),
     'weighted':        lambda **p: WeightedAggregation(**p),
+    'enhanced_weighted': lambda **p: EnhancedWeightedAggregation(**p),
+    'robust':          lambda **p: RobustAggregation(**p),
+    'interaction_robust': lambda **p: InteractionRobustAggregation(**p),
+    'minimal_robust':  lambda **p: MinimalRobustAggregation(**p),
+    'minimal_robust_v2': lambda **p: MinimalRobustV2Aggregation(**p),
+    'instability_focused': lambda **p: InstabilityFocusedAggregation(**p),
     'optimized':       lambda **p: OptimizedAggregation(**p),
     'locus_level':     lambda **p: LocusLevelAggregation(**p),
     'advanced':        lambda **p: AdvancedAggregation(**p),
@@ -151,6 +171,10 @@ DEFAULTS: Dict[str, Any] = {
         {"name": "xgboost",     "params": {}},
         {"name": "mahalanobis", "params": {}},
     ],
+
+    "interpretability": {
+        "n_misclassified": 10
+    },
 }
 
 
@@ -478,15 +502,6 @@ def repel_labels(
     return max_iter
 
 
-# ── Pipeline runner ──
-
-from MSI.feature_selectors import (
-    XgbImportanceSelector, TwoStageXgbSelector,
-    RelaxedAUCSelector, MultiMetricLocusSelector,
-    LassoSelector, VarianceSelector, TwoStageVarianceSelector,
-)
-from MSI.filters import AnomalyFilter, MultivariateOutlierFilter
-
 
 def _build_pipeline_components(
     strat_cfg: Dict[str, Any],
@@ -528,6 +543,12 @@ def _build_pipeline_components(
         locus_sel = RelaxedAUCSelector(**ls_params)
     elif ls_type == 'multi_metric':
         locus_sel = MultiMetricLocusSelector(**ls_params)
+    elif ls_type == 'stability':
+        locus_sel = StabilitySelectionLocusSelector(**ls_params)
+    elif ls_type == 'permutation':
+        locus_sel = PermutationTestLocusSelector(**ls_params)
+    elif ls_type == 'effect_size':
+        locus_sel = EffectSizeLocusSelector(**ls_params)
     else:
         raise ValueError(f"Unknown locus_selector type: {ls_type}")
 
@@ -552,9 +573,17 @@ def _build_pipeline_components(
     else:
         raise ValueError(f"Unknown feature_selector type: {fs_type}")
 
-    # Sample filters: quality filter applied to all, anomaly filter only to MSS training
+    # Sample filters: NaN filter first (drop samples with missing features),
+    # then quality filter applied to all, anomaly filter only to MSS training
     qf_cfg = strat_cfg.get('quality_filter', {"min_loci": 50})
-    quality_filters = [QualityFilter(min_loci=qf_cfg.get('min_loci', 50))]
+    nan_cfg = strat_cfg.get('nan_filter', {})
+    if nan_cfg:
+        # Start from default exclude, add user-specified columns
+        nan_exclude = set(NaNFilter._DEFAULT_EXCLUDE) | set(nan_cfg.get('exclude_columns', []))
+    else:
+        nan_exclude = None  # use defaults
+    quality_filters = [NaNFilter(exclude=nan_exclude),
+                       QualityFilter(min_loci=qf_cfg.get('min_loci', 50))]
     sf = CombinedFilter(quality_filters)
 
     # Train-only filters (anomaly detection) — applied after split, only to MSS
@@ -574,7 +603,29 @@ def _build_pipeline_components(
 
     train_filter = CombinedFilter(train_filters) if train_filters else None
     required_features = strat_cfg.get('required_features', [])
-    return fe, locus_sel, feat_sel, sf, train_filter, required_features
+    
+    # Build rule engine
+    rule_engine = None
+    re_cfg = strat_cfg.get('rule_engine')
+    if re_cfg:
+        rules = []
+        for rule_cfg in re_cfg.get('rules', []):
+            rule_type = rule_cfg.get('type')
+            params = rule_cfg.get('params', {})
+            if rule_type == 'max_alt_ratio':
+                rules.append(MaxAltRatioRule(**params))
+            elif rule_type == 'extreme_instability':
+                rules.append(ExtremeInstabilityRule(**params))
+            elif rule_type == 'cancer_specific':
+                rules.append(CancerSpecificRule(**params))
+            elif rule_type == 'confidence':
+                rules.append(ConfidenceRule(**params))
+            else:
+                logger.warning(f"Unknown rule type: {rule_type}")
+        if rules:
+            rule_engine = RuleEngine(rules)
+    
+    return fe, locus_sel, feat_sel, sf, train_filter, required_features, rule_engine
 
 
 def _run_one_combination(
@@ -596,7 +647,7 @@ def _run_one_combination(
     cfg : dict
         Full resolved config dict (provides pipeline.run() params and cache_dir).
     """
-    fe, locus_sel, feat_sel, sf, train_filter, required_features = _build_pipeline_components(strat_cfg)
+    fe, locus_sel, feat_sel, sf, train_filter, required_features, rule_engine = _build_pipeline_components(strat_cfg)
     det = _make_detector(det_cfg)
 
     pipeline = MSIDetectionPipeline(
@@ -607,10 +658,12 @@ def _run_one_combination(
         detector=det,
         train_filter=train_filter,
         required_features=required_features,
+        rule_engine=rule_engine,
     )
 
     # Pipeline run parameters
     run_cfg = cfg.get('pipeline', {})
+    cost_sensitive = strat_cfg.get('cost_sensitive', {})
     results = pipeline.run(
         meta,
         n_sigma=run_cfg.get('n_sigma', 3.0),
@@ -620,6 +673,8 @@ def _run_one_combination(
         msi_col=run_cfg.get('msi_col', 'MSI_real'),
         threshold_method=run_cfg.get('threshold_method', 'cv'),
         cv_folds=run_cfg.get('cv_folds', 5),
+        fn_weight=cost_sensitive.get('fn_weight', 1.0),
+        fp_weight=cost_sensitive.get('fp_weight', 1.0),
     )
     return results
 
@@ -728,6 +783,19 @@ def _save_combination_outputs(
 
     # Save trained model for reuse
     _save_model(res, combo_dir)
+    
+    # Generate interpretability analysis
+    try:
+        import sys
+        sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+        from interpretability import add_interpretability_to_pipeline
+        interp_dir = os.path.join(combo_dir, 'interpretability')
+        n_misclassified = cfg.get('interpretability', {}).get('n_misclassified', 10)
+        interp_outputs = add_interpretability_to_pipeline(res, interp_dir, n_misclassified)
+        if interp_outputs:
+            logger.info(f"  Interpretability: {len(interp_outputs)} files saved to {interp_dir}")
+    except Exception as e:
+        logger.warning(f"  Interpretability generation failed: {e}")
 
 
 def _save_model(res: Dict[str, Any], combo_dir: str) -> None:

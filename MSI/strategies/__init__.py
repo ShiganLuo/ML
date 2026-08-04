@@ -20,6 +20,12 @@ from .interaction import InteractionAggregation
 from .distribution import DistributionAggregation
 from .multi_threshold import MultiThresholdAggregation
 from .weighted import WeightedAggregation
+from .enhanced_weighted import EnhancedWeightedAggregation
+from .robust_aggregation import RobustAggregation
+from .interaction_robust import InteractionRobustAggregation
+from .minimal_robust import MinimalRobustAggregation
+from .minimal_robust_v2 import MinimalRobustV2Aggregation
+from .instability_focused import InstabilityFocusedAggregation
 from .optimized import OptimizedAggregation
 from .locus_level import LocusLevelAggregation
 from .advanced import AdvancedAggregation
@@ -42,6 +48,12 @@ AGG_STRATEGIES: Dict[str, AggregationStrategy] = {
     'distribution': DistributionAggregation(),
     'multi_threshold': MultiThresholdAggregation(),
     'weighted': WeightedAggregation(),
+    'enhanced_weighted': EnhancedWeightedAggregation(),
+    'robust': RobustAggregation(),
+    'interaction_robust': InteractionRobustAggregation(),
+    'minimal_robust': MinimalRobustAggregation(),
+    'minimal_robust_v2': MinimalRobustV2Aggregation(),
+    'instability_focused': InstabilityFocusedAggregation(),
     'optimized': OptimizedAggregation(),
     'locus_level': LocusLevelAggregation(),
     'advanced': AdvancedAggregation(),
@@ -56,7 +68,9 @@ __all__ = [
     'BioPriorAggregation', 'PercentileAggregation', 'CountAggregation',
     'ShiftRichAggregation', 'NoiseFilteredAggregation', 'MonoFocusAggregation',
     'AllAggregation', 'InteractionAggregation', 'DistributionAggregation',
-    'MultiThresholdAggregation', 'WeightedAggregation', 'OptimizedAggregation',
+    'MultiThresholdAggregation', 'WeightedAggregation', 'EnhancedWeightedAggregation',
+    'RobustAggregation', 'InteractionRobustAggregation', 'MinimalRobustAggregation',
+    'MinimalRobustV2Aggregation', 'InstabilityFocusedAggregation', 'OptimizedAggregation',
     'LocusLevelAggregation', 'AdvancedAggregation', 'UnstableLocusAggregation',
     'SensitiveAggregation', 'LocusScoreAggregation',
 ]

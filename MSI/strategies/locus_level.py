@@ -9,6 +9,8 @@ import numpy as np
 from .base import AggregationStrategy
 from ..utils import _common_features, _unit_len_features
 from collections import Counter
+import logging
+logger = logging.getLogger(__name__)
 
 class LocusLevelAggregation(AggregationStrategy):
     """Per-locus features without aggregation (pivot to columns).

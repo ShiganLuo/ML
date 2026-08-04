@@ -22,7 +22,7 @@ import sys
 import logging
 import pandas as pd
 
-SCRIPT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+SCRIPT_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.insert(0, os.path.dirname(SCRIPT_DIR))
 from common.LogUtil import setup_logger
 
@@ -65,7 +65,8 @@ def read_excel_samples(excel_path: str) -> pd.DataFrame:
 
     if 'TMB状态' in all_df.columns:
         result['TMB_status'] = all_df.loc[result.index, 'TMB状态'].values
-
+    if "解读匹配癌种" in all_df.columns:
+        result['cancer_type'] = all_df.loc[result.index, "解读匹配癌种"].values
     logger.info(f"Total samples from Excel: {len(result)}")
     logger.info(f"MSI_real distribution: {result['MSI_real'].value_counts().to_dict()}")
     return result
@@ -141,9 +142,9 @@ def main():
     result = pd.DataFrame(matched_rows)
 
     # Merge extra columns
-    if 'tumor_content' in df.columns or 'TMB_status' in df.columns:
-        extra = df.set_index('sample_id')[['tumor_content', 'TMB_status']].to_dict('index')
-        for col in ['tumor_content', 'TMB_status']:
+    if 'tumor_content' in df.columns or 'TMB_status' in df.columns or 'cancer_type' in df.columns:
+        extra = df.set_index('sample_id')[['tumor_content', 'TMB_status', 'cancer_type']].to_dict('index')
+        for col in ['tumor_content', 'TMB_status', 'cancer_type']:
             if col in df.columns:
                 result[col] = result['样本编号'].map(lambda x: extra.get(x, {}).get(col))
 
@@ -159,6 +160,8 @@ def main():
         logger.info(f"  tumor_content: n={len(tc)}, mean={tc.mean():.3f}, median={tc.median():.3f}")
     if 'TMB_status' in result.columns:
         logger.info(f"  TMB_status: {result['TMB_status'].value_counts(dropna=False).to_dict()}")
+    if 'cancer_type' in result.columns:
+        logger.info(f"  cancer_type: {result['cancer_type'].value_counts(dropna=False).to_dict()}")
 
     if unmatched:
         logger.info(f"\n  Unmatched samples (first 10):")

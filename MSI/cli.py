@@ -14,7 +14,7 @@ import pandas as pd
 
 from .features import FeatureExtractor
 from .feature_selectors import AUCBasedLocusSelector, TwoStageSelector, SingleVariableAUCSelector, NullLocusSelector
-from .filters import CombinedFilter, QualityFilter, DepthFilter
+from .filters import CombinedFilter, QualityFilter, DepthFilter, NaNFilter
 from .detectors import (
     BinaryClassifierDetector, MahalanobisDetector,
     MSIPercentageDetector, OneClassSVMDetector,
@@ -126,7 +126,7 @@ def train_model(args):
     elif args.selector == 'lasso':
         feature_selector = LassoSelector(C=0.1)
 
-    sample_filter = CombinedFilter([QualityFilter(min_loci=50)])
+    sample_filter = CombinedFilter([NaNFilter(), QualityFilter(min_loci=50)])
 
     if args.detector == 'mahalanobis':
         detector = MahalanobisDetector()

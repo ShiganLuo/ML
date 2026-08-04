@@ -131,24 +131,24 @@ class FeatureExtractor:
 
         features = {
             'n_loci': len(lf),
-            'mean_alt': lf['alt_ratio'].mean(),
+            'median_alt': lf['alt_ratio'].median(),
             'high_alt_ratio': (lf['alt_ratio'] > 0.5).mean(),
-            'mean_entropy': lf['entropy'].mean(),
-            'mean_ref_ratio': lf['ref_ratio'].mean(),
-            'mean_shift': lf['mean_shift'].mean(),
+            'median_entropy': lf['entropy'].median(),
+            'median_ref_ratio': lf['ref_ratio'].median(),
+            'median_shift': lf['mean_shift'].median(),
             'max_shift': lf['max_shift'].max(),
-            'mean_ins_ratio': lf['ins_ratio'].mean(),
-            'mean_del_ratio': lf['del_ratio'].mean(),
+            'median_ins_ratio': lf['ins_ratio'].median(),
+            'median_del_ratio': lf['del_ratio'].median(),
         }
 
         for ul in [1, 2, 3]:
             mask = lf['unit_len'] == ul
             if mask.sum() > 0:
-                features[f'alt_unit{ul}'] = lf.loc[mask, 'alt_ratio'].mean()
-                features[f'entropy_unit{ul}'] = lf.loc[mask, 'entropy'].mean()
+                features[f'alt_unit{ul}'] = lf.loc[mask, 'alt_ratio'].meidian()
+                features[f'entropy_unit{ul}'] = lf.loc[mask, 'entropy'].meidian()
                 features[f'n_unit{ul}'] = int(mask.sum())
-                features[f'ins_ratio_unit{ul}'] = lf.loc[mask, 'ins_ratio'].mean()
-                features[f'del_ratio_unit{ul}'] = lf.loc[mask, 'del_ratio'].mean()
+                features[f'ins_ratio_unit{ul}'] = lf.loc[mask, 'ins_ratio'].meidian()
+                features[f'del_ratio_unit{ul}'] = lf.loc[mask, 'del_ratio'].meidian()
             else:
                 features[f'alt_unit{ul}'] = 0
                 features[f'entropy_unit{ul}'] = 0

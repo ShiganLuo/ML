@@ -11,12 +11,14 @@ import numpy as np
 import pandas as pd
 
 from .features import FeatureExtractor
-from .feature_selectors import LocusSelector, AUCBasedLocusSelector, NullLocusSelector
-from .feature_selectors import FeatureSelector, TwoStageSelector, SingleVariableAUCSelector, LassoSelector
+from .locus_selector import LocusSelector, AUCBasedLocusSelector, NullLocusSelector
+from .feature_selector import FeatureSelector, TwoStageSelector, SingleVariableAUCSelector, LassoSelector
 from .filters import SampleFilter, CombinedFilter, QualityFilter, DepthFilter
 from .detectors import Detector, BinaryClassifierDetector, OneClassSVMDetector
 from .strategies import BaselineAggregation, LocusLevelAggregation
 from .utils import compute_roc, find_best_threshold, evaluate
+from .interpretability import get_interpreter, add_interpretability_to_pipeline
+from .rule_engine import RuleEngine, Rule
 
 logger = logging.getLogger(__name__)
 
@@ -32,6 +34,7 @@ class MSIDetectionPipeline:
         detector: Detector,
         train_filter: Optional[SampleFilter] = None,
         required_features: Optional[List[str]] = None,
+        rule_engine: Optional[RuleEngine] = None,
     ):
         self.feature_extractor = feature_extractor
         self.locus_selector = locus_selector
@@ -40,6 +43,7 @@ class MSIDetectionPipeline:
         self.detector = detector
         self.train_filter = train_filter
         self.required_features = required_features or []
+        self.rule_engine = rule_engine
 
     def _aggregate_from_locus_data(
         self, locus_data: Dict[str, List[Dict]],
@@ -119,6 +123,8 @@ class MSIDetectionPipeline:
         threshold_method: str = "nsigma",
         fixed_threshold: Optional[float] = None,
         cv_folds: int = 5,
+        fn_weight: float = 1.0,
+        fp_weight: float = 1.0,
     ) -> Dict:
         """Run the full pipeline.
 
@@ -313,7 +319,11 @@ class MSIDetectionPipeline:
 
         # Train set: MSS only (one-class anomaly detection)
         train_mss_df = train_df[train_df['MSI_status'] == 'MSS']
-        logger.info(f"Training (MSS only): {len(train_mss_df)}")
+        if isinstance(
+            self.detector,
+            (OneClassSVMDetector)
+        ):
+            logger.info(f"Training (MSS only): {len(train_mss_df)} for one class")
 
         # Step 4: Get feature columns (numeric only, exclude metadata)
         exclude_cols = {'MSI_status', 'cancertype', 'chrom', 'sample_id', "MSI_CNC"}
@@ -428,12 +438,44 @@ class MSIDetectionPipeline:
                     det_cv.fit(X_all[tri])
                 cv_scores = det_cv.score(X_all[tei])
                 cv_fpr, cv_tpr, cv_thr = roc_curve(y_all[tei], cv_scores)
-                cv_j = cv_tpr - cv_fpr
+                # Cost-sensitive: weight FN more heavily
+                cv_j = cv_tpr - (fn_weight / fp_weight) * cv_fpr
                 best_i = int(np.argmax(cv_j))
                 fold_thrs.append(float(cv_thr[best_i]))
             cv_fold_thresholds = fold_thrs
             train_thr = float(np.mean(fold_thrs))
-            logger.info(f"Threshold (CV {actual_folds}-fold): "
+            logger.info(f"Threshold (CV {actual_folds}-fold, fn_weight={fn_weight}, fp_weight={fp_weight}): "
+                        f"mean={train_thr:.4f} std={np.std(fold_thrs):.4f} "
+                        f"folds={','.join(f'{t:.4f}' for t in fold_thrs)}")
+        elif threshold_method == 'cost_sensitive':
+            import copy
+            from sklearn.model_selection import StratifiedKFold
+            from sklearn.metrics import roc_curve
+            X_all = np.nan_to_num(train_all_df[selected_cols].values, nan=0.0).astype(float)
+            y_all = (train_all_df['MSI_status'] == 'MSI-H').astype(int).values
+            n_msih = int(y_all.sum())
+            actual_folds = min(cv_folds, n_msih)
+            if actual_folds < 2:
+                raise ValueError(f"Need >= 2 MSI-H samples for CV, got {n_msih}")
+            skf = StratifiedKFold(n_splits=actual_folds, shuffle=True, random_state=42)
+            fold_thrs = []
+            for fi, (tri, tei) in enumerate(skf.split(X_all, y_all)):
+                det_cv = copy.deepcopy(self.detector)
+                if hasattr(det_cv, 'set_feature_names'):
+                    det_cv.set_feature_names(selected_cols)
+                if isinstance(det_cv, BinaryClassifierDetector):
+                    det_cv.fit(X_all[tri], y_all[tri])
+                else:
+                    det_cv.fit(X_all[tri])
+                cv_scores = det_cv.score(X_all[tei])
+                cv_fpr, cv_tpr, cv_thr = roc_curve(y_all[tei], cv_scores)
+                # Cost-sensitive: maximize tpr - (fn_weight/fp_weight) * fpr
+                cv_j = cv_tpr - (fn_weight / fp_weight) * cv_fpr
+                best_i = int(np.argmax(cv_j))
+                fold_thrs.append(float(cv_thr[best_i]))
+            cv_fold_thresholds = fold_thrs
+            train_thr = float(np.mean(fold_thrs))
+            logger.info(f"Threshold (cost_sensitive, fn_weight={fn_weight}, fp_weight={fp_weight}): "
                         f"mean={train_thr:.4f} std={np.std(fold_thrs):.4f} "
                         f"folds={','.join(f'{t:.4f}' for t in fold_thrs)}")
         else:
@@ -463,6 +505,40 @@ class MSIDetectionPipeline:
 
         # Evaluate on test set using training threshold
         test_eval_with_train_thr = evaluate(test_df['MSI_status'].values, test_scores, train_thr)
+
+        # Apply rule engine if configured
+        rule_engine_results = None
+        if self.rule_engine is not None and len(self.rule_engine.rules) > 0:
+            logger.info(f"Applying rule engine: {len(self.rule_engine.rules)} rules")
+            initial_predictions = np.where(test_scores >= train_thr, 'MSI-H', 'MSS')
+            rule_predictions = self.rule_engine.apply(
+                initial_predictions, test_scores, test_df[selected_cols], train_thr
+            )
+            # Evaluate with rule engine predictions
+            from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score
+            true_labels = test_df['MSI_status'].values
+            rule_eval = evaluate(true_labels, test_scores, train_thr)  # Same scores, but rules override
+            # Manual evaluation for rule predictions
+            rule_tp = ((rule_predictions == 'MSI-H') & (true_labels == 'MSI-H')).sum()
+            rule_fp = ((rule_predictions == 'MSI-H') & (true_labels == 'MSS')).sum()
+            rule_fn = ((rule_predictions == 'MSS') & (true_labels == 'MSI-H')).sum()
+            rule_tn = ((rule_predictions == 'MSS') & (true_labels == 'MSS')).sum()
+            rule_sens = rule_tp / (rule_tp + rule_fn) if (rule_tp + rule_fn) > 0 else 0
+            rule_spec = rule_tn / (rule_tn + rule_fp) if (rule_tn + rule_fp) > 0 else 0
+            rule_acc = (rule_tp + rule_tn) / len(true_labels)
+            
+            rule_engine_results = {
+                'predictions': rule_predictions,
+                'sensitivity': rule_sens,
+                'specificity': rule_spec,
+                'accuracy': rule_acc,
+                'tp': int(rule_tp), 'fp': int(rule_fp),
+                'fn': int(rule_fn), 'tn': int(rule_tn),
+                'n_overridden': int((initial_predictions != rule_predictions).sum()),
+                'engine_description': self.rule_engine.describe(),
+            }
+            logger.info(f"Rule engine results: Sens={rule_sens:.4f}, Spec={rule_spec:.4f}, "
+                       f"overridden={rule_engine_results['n_overridden']}")
 
         # Step 8c: Per-cancer evaluation on test set
         per_cancer_eval = {}
@@ -507,9 +583,35 @@ class MSIDetectionPipeline:
             'detector_cov_inv': getattr(self.detector, 'cov_inv_', None),
             'per_cancer_eval': per_cancer_eval,
             'cancer_thresholds': cancer_thresholds,
+            # Rule engine results
+            'rule_engine_results': rule_engine_results,
             # Pipeline components for model saving
             'detector': self.detector,
             'feature_selector': self.feature_selector,
             'feature_extractor': self.feature_extractor,
             'sample_filter': self.sample_filter,
+            # Data for interpretability
+            'X_train': X_train_all_sel,
+            'y_train': (train_all_df['MSI_status'] == 'MSI-H').astype(int).values,
+            'X_test': X_test,
         }
+
+    def generate_interpretability(self, results: Dict, output_dir: str,
+                                 n_misclassified: int = 10) -> Dict[str, str]:
+        """Generate interpretability analysis for the trained model.
+        
+        Parameters
+        ----------
+        results : dict
+            Results from run().
+        output_dir : str
+            Directory to save interpretability outputs.
+        n_misclassified : int
+            Number of misclassified samples to explain (default: 10).
+        
+        Returns
+        -------
+        dict
+            Paths to generated interpretability files.
+        """
+        return add_interpretability_to_pipeline(results, output_dir, n_misclassified)

@@ -13,15 +13,17 @@ from .utils import _common_features, _unit_len_features, parse_repeat_counts, co
 from .features import FeatureExtractor
 
 # Selectors
-from .feature_selectors import (
-    LocusSelector, AUCBasedLocusSelector, UnitLengthLocusSelector,
-    CombinedLocusSelector, NullLocusSelector, RelaxedAUCSelector, MultiMetricLocusSelector,
+from .feature_selector import (
     FeatureSelector, SingleVariableAUCSelector, TwoStageSelector, LassoSelector,
-    XgbImportanceSelector, TwoStageXgbSelector,
+    XgbImportanceSelector, TwoStageXgbSelector, VarianceSelector, TwoStageVarianceSelector
 )
 
+from .locus_selector import (
+    LocusSelector, AUCBasedLocusSelector, EffectSizeLocusSelector, PermutationTestLocusSelector, StabilitySelectionLocusSelector,
+    UnitLengthLocusSelector, CombinedLocusSelector, NullLocusSelector, RelaxedAUCSelector, MultiMetricLocusSelector
+)
 # Filters
-from .filters import SampleFilter, DepthFilter, QualityFilter, CombinedFilter, AnomalyFilter, MultivariateOutlierFilter
+from .filters import SampleFilter, DepthFilter, QualityFilter, CombinedFilter, AnomalyFilter, MultivariateOutlierFilter, NaNFilter
 
 # Strategies
 from .strategies import (
@@ -30,7 +32,9 @@ from .strategies import (
     BioPriorAggregation, PercentileAggregation, CountAggregation,
     ShiftRichAggregation, NoiseFilteredAggregation, MonoFocusAggregation,
     AllAggregation, InteractionAggregation, DistributionAggregation,
-    MultiThresholdAggregation, WeightedAggregation, OptimizedAggregation,
+    MultiThresholdAggregation, WeightedAggregation, EnhancedWeightedAggregation,
+    RobustAggregation, InteractionRobustAggregation, MinimalRobustAggregation,
+    MinimalRobustV2Aggregation, InstabilityFocusedAggregation, OptimizedAggregation,
     LocusLevelAggregation, AdvancedAggregation, UnstableLocusAggregation,
     SensitiveAggregation, LocusScoreAggregation,
 )
@@ -60,7 +64,7 @@ __all__ = [
     'FeatureSelector', 'SingleVariableAUCSelector', 'TwoStageSelector', 'LassoSelector',
     'XgbImportanceSelector', 'TwoStageXgbSelector',
     # Filters
-    'SampleFilter', 'DepthFilter', 'QualityFilter', 'CombinedFilter', 'AnomalyFilter', 'MultivariateOutlierFilter',
+    'SampleFilter', 'DepthFilter', 'QualityFilter', 'CombinedFilter', 'AnomalyFilter', 'MultivariateOutlierFilter', 'NaNFilter',
     # Strategies
     'AggregationStrategy', 'AGG_STRATEGIES',
     'BaselineAggregation', 'TailAggregation', 'DistAggregation',
