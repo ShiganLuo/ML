@@ -3,9 +3,9 @@
 # GitHub: https://github.com/ShiganLuo
 import sys
 import os
-sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
-from common.LogUtil import setup_logger
-from common.CmdUtil import _run_cmd
+sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))))))
+from src.common.util.LogUtil import setup_logger
+from src.common.util.CmdUtil import _run_cmd
 import pandas as pd
 from typing import Dict, Optional
 import subprocess

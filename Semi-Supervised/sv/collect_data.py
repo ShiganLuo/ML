@@ -1,9 +1,9 @@
 import os
 import pandas as pd
 import sys
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from common.LogUtil import setup_logger
-from common.MatchUtil import task_sample_match
+sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))))))
+from src.common.util.LogUtil import setup_logger
+from src.common.util.MatchUtil import task_sample_match
 from typing import List, Literal
 logger = setup_logger(__name__)
 

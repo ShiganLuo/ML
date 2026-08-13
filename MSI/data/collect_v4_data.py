@@ -22,9 +22,9 @@ import sys
 import logging
 import pandas as pd
 
-SCRIPT_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-sys.path.insert(0, os.path.dirname(SCRIPT_DIR))
-from common.LogUtil import setup_logger
+SCRIPT_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))))))
+sys.path.insert(0, SCRIPT_DIR)
+from src.common.util.LogUtil import setup_logger
 
 
 # ── Paths ──

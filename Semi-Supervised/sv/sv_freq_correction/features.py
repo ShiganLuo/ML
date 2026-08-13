@@ -22,8 +22,8 @@ import math
 import os
 from typing import Dict, List, Optional, Tuple
 import sys
-sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
-from common.LogUtil import setup_logger
+sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))))))
+from src.common.util.LogUtil import setup_logger
 import numpy as np
 import pandas as pd
 import joblib
